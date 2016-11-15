@@ -1,0 +1,9 @@
+# Ignore built binaries
+bin/
+
+# Ignore Glide lockfile and vendor dir
+vendor/
+glide.lock
+
+# Ignore custom test data
+testdata/

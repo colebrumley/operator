@@ -1,0 +1,20 @@
+package: github.com/colebrumley/operator
+import:
+- package: github.com/RichardKnop/machinery
+  subpackages:
+  - v1
+  - v1/config
+  - v1/errors
+  - v1/logger
+  - v1/signatures
+- package: github.com/Sirupsen/logrus
+  version: ^0.11.0
+  subpackages:
+  - hooks/syslog
+- package: github.com/gorilla/mux
+  version: ^1.1.0
+- package: github.com/olebedev/config
+- package: golang.org/x/crypto
+  subpackages:
+  - ssh
+  - ssh/agent
