@@ -10,6 +10,8 @@ import (
 
 	"fmt"
 
+	"math"
+
 	log "github.com/Sirupsen/logrus"
 )
 
@@ -54,6 +56,10 @@ func Exec(config ...string) (string, error) {
 	go func() {
 		done <- cmd.Wait()
 	}()
+
+	if cfg.Timeout == 0 {
+		cfg.Timeout = math.MaxInt32
+	}
 
 	select {
 	case <-time.After(time.Duration(cfg.Timeout) * time.Second):
