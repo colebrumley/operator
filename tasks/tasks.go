@@ -16,4 +16,8 @@ var TaskList = map[string]Task{
 		Description: "Dispatch a command to a remote node via SSH",
 		Fn:          SSH,
 	},
+	"exec": Task{
+		Description: "Execute an external application",
+		Fn:          Exec,
+	},
 }

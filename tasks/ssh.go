@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"strings"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
@@ -54,7 +55,7 @@ func SSH(config ...string) (string, error) {
 	}
 
 	// Run the command and return the stringified output
-	client, err := ssh.Dial("tcp", cfg.Host, &ssh.ClientConfig{
+	client, err := ssh.Dial("tcp", portAddrCheck(cfg.Host), &ssh.ClientConfig{
 		User: cfg.User,
 		Auth: auths,
 	})
@@ -177,4 +178,11 @@ func fileExists(name string) bool {
 		}
 	}
 	return true
+}
+
+func portAddrCheck(addr string) string {
+	if len(strings.Split(addr, ":")) == 1 {
+		return addr + ":22"
+	}
+	return addr
 }

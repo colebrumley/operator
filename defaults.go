@@ -20,7 +20,11 @@ var DefaultConfig = map[string]interface{}{
 		"url": "redis://localhost:6379",
 	},
 	"tasks": map[string]interface{}{
-		"enabled": []interface{}{"ping", "ssh"},
+		"enabled": []interface{}{
+			"ping",
+			"ssh",
+			"exec",
+		},
 	},
 	"api": map[string]interface{}{
 		"enabled":   true,
