@@ -33,9 +33,10 @@ func (o *OperatorAPI) Start(server *machinery.Server) {
 
 	// Determine routes to add from what's in TaskList
 	for path := range tasks.TaskList {
-		p := fmt.Sprintf("%s/%s/", basePath, path)
-		handler := func(http.ResponseWriter, *http.Request) {}
-		helphandler := func(http.ResponseWriter, *http.Request) {}
+		var (
+			handler, helphandler func(http.ResponseWriter, *http.Request)
+		)
+		p := fmt.Sprintf("%s/%s", basePath, path)
 		if o.UseBasicAuth && len(o.Password) > 0 {
 			handler = BasicAuth(o.Password, makeHandler(path, server))
 			helphandler = BasicAuth(o.Password, makeHelpHandler(path))
@@ -47,8 +48,8 @@ func (o *OperatorAPI) Start(server *machinery.Server) {
 		log.Debug("Registering API route " + p)
 		r.HandleFunc(p, handler)
 
-		log.Debug("Registering API route " + p + "help")
-		r.HandleFunc(p+"help", helphandler)
+		log.Debug("Registering API route " + p + "/help")
+		r.HandleFunc(p+"/help", helphandler)
 	}
 
 	// Check for TLS settings and start a TLS listener if necessary
