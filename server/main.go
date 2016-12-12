@@ -42,6 +42,7 @@ func init() {
 
 func main() {
 	operator.ConfigLogging(cfg)
+	go operator.WatchForSignals()
 
 	c, _ := config.RenderJson(cfg.Root)
 	log.Debugln("Loaded config: ", c)
