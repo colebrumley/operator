@@ -78,12 +78,6 @@ type SSHConfig struct {
 	Keyfiles                      []string
 }
 
-// Serialize returns a stringified SSHConfig
-func (s *SSHConfig) Serialize() (string, error) {
-	bytes, err := json.Marshal(s)
-	return string(bytes), err
-}
-
 // GetKeyAuths returns the ssh.AuthMethod objects loaded from the provided SSH keys
 func (s *SSHConfig) GetKeyAuths() (auths []ssh.AuthMethod, err error) {
 	auths = []ssh.AuthMethod{}
