@@ -11,6 +11,8 @@ import (
 
 	"fmt"
 
+	"net/url"
+
 	"github.com/colebrumley/operator/tasks"
 	"github.com/gorilla/mux"
 )
@@ -78,32 +80,27 @@ func makeHandler(name string, server *machinery.Server) func(http.ResponseWriter
 	return func(rw http.ResponseWriter, req *http.Request) {
 		log.Debug("Received API request " + req.RequestURI)
 
-		if err := req.ParseForm(); err != nil {
-			log.Error("Could not parse form: ", err)
+		// Separate out URL query params from POST body params
+		formValues, urlValues, err := extractURLValues(req)
+		if err != nil {
+			log.Error("Could not parse request: ", err)
 			rw.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
+		wait := urlValues.Get("wait")
+
 		taskargs := []signatures.TaskArg{}
-		for name, arg := range req.Form {
+		// We are expecting a single JSON doc as the body
+		for name := range formValues {
 			if len(name) > 0 {
 				taskargs = append(taskargs, signatures.TaskArg{
 					Type:  "string",
 					Value: name,
 				})
 			}
-
-			if len(arg) > 0 {
-				for _, a := range arg {
-					taskargs = append(taskargs, signatures.TaskArg{
-						Type:  "string",
-						Value: a,
-					})
-				}
-			}
 		}
 
-		result := ""
 		sendResult, err := server.SendTask(&signatures.TaskSignature{
 			Name: name,
 			Args: taskargs,
@@ -112,21 +109,40 @@ func makeHandler(name string, server *machinery.Server) func(http.ResponseWriter
 		if err != nil {
 			errmsg := "Task failed: " + err.Error()
 			log.Error(errmsg)
-			result = errmsg
-			rw.WriteHeader(http.StatusBadRequest)
+			rw.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 
-		if sendResult != nil {
-			state := sendResult.GetState()
-			data, err := json.Marshal(state)
-			if err != nil {
-				errmsg := "Task failed: " + err.Error()
-				log.Error(errmsg)
-				result = errmsg
-				rw.WriteHeader(http.StatusInternalServerError)
+		state := sendResult.GetState()
+		if len(wait) > 0 && wait == "true" && !state.IsCompleted() {
+			for {
+				state = sendResult.GetState()
+				if state.IsCompleted() {
+					break
+				}
 			}
-			result = string(data)
 		}
-		rw.Write([]byte(result))
+		data, err := json.Marshal(state)
+		if err != nil {
+			errmsg := "Task failed: " + err.Error()
+			log.Error(errmsg)
+			rw.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		rw.Write(data)
 	}
+}
+
+// Workaround for separating URL and POST body params, which normally get merged into req.Form
+// https://github.com/golang/go/issues/3630
+func extractURLValues(req *http.Request) (form url.Values, query url.Values, err error) {
+	if query, err = url.ParseQuery(req.URL.RawQuery); err != nil {
+		return
+	}
+	// Blank RawQuery before parsing the rest of the form
+	req.URL.RawQuery = ""
+
+	err = req.ParseForm()
+	form = req.Form
+	return
 }
