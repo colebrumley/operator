@@ -3,6 +3,7 @@ package tasks
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"net"
 	"os"
@@ -10,116 +11,148 @@ import (
 	"path/filepath"
 	"strings"
 
+	"time"
+
+	"bytes"
+
+	log "github.com/Sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 )
 
 // SSH dispatches a command to a remote node via SSH
 func SSH(config ...interface{}) (string, error) {
-	var cfg SSHConfig
+	var (
+		cfg         SSHConfig
+		auths       []ssh.AuthMethod
+		err         error
+		currentUser *user.User
+		rawData     []byte
+	)
 
-	data := []byte(config[0].(string))
+	if len(config) > 0 {
+		rawData = []byte(config[0].(string))
+	} else {
+		return "", fmt.Errorf("No SSH config provided!")
+	}
 
 	// Convert the config back into a struct from JSON
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	if err := json.Unmarshal(rawData, &cfg); err != nil {
 		return "", err
 	}
 
 	// Make sure we have the necessary info to actually do something
-	if len(cfg.Command) == 0 {
-		return "No command provided, nothing to do.", nil
+	if !cfg.Validate() {
+		return "", fmt.Errorf("Insufficient information provided to establish an SSH connection")
 	}
 
-	if len(cfg.Host) == 0 {
-		return "", errors.New("No host defined")
-	}
-
+	// Set the User to the currect user if it's undefined
 	if len(cfg.User) == 0 {
-		return "", errors.New("No user defined")
-	}
-
-	if len(cfg.Keyfiles) == 0 && len(cfg.Password) == 0 {
-		return "", errors.New("No RSA keys or password defined, cannot authenticate")
+		if currentUser, err = user.Current(); err != nil {
+			return "", err
+		}
+		cfg.User = currentUser.Name
 	}
 
 	// Get the auth methods from provided creds. Prefer keys, fall back to password if no keys are defined.
-	auths, err := cfg.GetKeyAuths()
+	if len(cfg.Keyfiles) > 0 {
+		log.Debugln("Loading SSH keyfiles", cfg.Keyfiles)
+		auths, err = GetKeyAuths(cfg.Keyfiles...)
+	} else if len(cfg.Password) > 0 {
+		log.Debugln("Using password for SSH access")
+		auths = append(auths, ssh.Password(cfg.Password))
+	} else {
+		log.Warningln("No SSH auth mechanisms defined, using defaults")
+		auths, err = GetDefaultAuth()
+	}
 	if err != nil {
 		return "", err
-	}
-	if len(auths) == 0 {
-		if len(cfg.Password) == 0 {
-			return "", errors.New("No auth methods defined, cannot continue!")
-		}
-		auths = append(auths, ssh.Password(cfg.Password))
 	}
 
-	// Run the command and return the stringified output
+	// Run the command and return the stringified output. Default to 10s connection timeout
 	client, err := ssh.Dial("tcp", portAddrCheck(cfg.Host), &ssh.ClientConfig{
-		User: cfg.User,
-		Auth: auths,
+		User:    cfg.User,
+		Auth:    auths,
+		Timeout: 10 * time.Second,
 	})
-	if err != nil {
-		return "", err
-	}
 	defer client.Close()
-	session, err := client.NewSession()
 	if err != nil {
 		return "", err
 	}
+	session, err := client.NewSession()
 	defer session.Close()
-	out, err := session.CombinedOutput(cfg.Command)
-	return string(out), err
+	if err != nil {
+		return "", err
+	}
+
+	out := bytes.NewBuffer([]byte{})
+	session.Stderr = out
+	session.Stdout = out
+	if cfg.Shell {
+		session.Stdin = bytes.NewBufferString(cfg.Command)
+		if err = session.Shell(); err != nil {
+			return out.String(), err
+		}
+	} else {
+		if err = session.Start(cfg.Command); err != nil {
+			return out.String(), err
+		}
+	}
+
+	err = session.Wait()
+	return out.String(), err
 }
 
 // SSHConfig is the wrapper object for SSH settings to be passed through to the SSH task
 type SSHConfig struct {
 	User, Password, Host, Command string
+	Shell                         bool
 	Keyfiles                      []string
 }
 
-// GetKeyAuths returns the ssh.AuthMethod objects loaded from the provided SSH keys
-func (s *SSHConfig) GetKeyAuths() (auths []ssh.AuthMethod, err error) {
-	auths = []ssh.AuthMethod{}
-	if len(s.Keyfiles) == 0 {
-		// If no keys are provided see if there's an ssh-agent running
-		if len(os.Getenv("SSH_AUTH_SOCK")) > 0 {
-			if auths, err = loadEnvAgent(); err != nil {
-				return
-			}
-		} else {
-			// Otherwise use ~/.ssh/id_rsa or ~/ssh/id_rsa (for windows, but
-			// it works on linux too)
-			if auths, err = loadDefaultKeys(); err != nil {
-				return
-			}
-		}
-	} else {
-		// Append each provided key to auths
-		auths, err = parseKeyFiles(s.Keyfiles)
+// Validate makes sure we have enough information to make a call
+func (s *SSHConfig) Validate() bool {
+	// Make sure we have the necessary info to actually do something
+	if len(s.Command) == 0 || len(s.Host) == 0 || len(s.User) == 0 {
+		return false
 	}
-	if len(auths) == 0 {
-		err = errors.New("No auths parsed from provided keys")
+	return true
+}
+
+// GetDefaultAuth is the default method for loading keys. Uses SSH_AUTH_SOCK
+// if available, otherwise attempts to load default keys at ~/.ssh/id_rsa
+// for Linux and ~/ssh/id_rsa (for windows, but it works on linux too).
+func GetDefaultAuth() (auths []ssh.AuthMethod, err error) {
+	if len(os.Getenv("SSH_AUTH_SOCK")) > 0 {
+		auths, err = loadEnvAgent()
+	} else {
+		var currentUser *user.User
+		if currentUser, err = user.Current(); err != nil {
+			return
+		}
+		auths, err = GetKeyAuths(
+			filepath.FromSlash(currentUser.HomeDir+"/.ssh/id_rsa"),
+			filepath.FromSlash(currentUser.HomeDir+"/ssh/id_rsa"),
+		)
 	}
 	return
 }
 
-func parseKeyFiles(paths []string) (auths []ssh.AuthMethod, err error) {
-	for _, key := range paths {
+// GetKeyAuths returns ssh.AuthMethod objects loaded from the provided SSH key paths.
+func GetKeyAuths(keyfiles ...string) (auths []ssh.AuthMethod, err error) {
+	for _, path := range keyfiles {
 		var (
 			pemBytes []byte
 			signer   ssh.Signer
 		)
-		if !fileExists(key) {
+		if !fileExists(path) {
 			err = errors.New("Specified key does not exist")
 			return
 		}
-		pemBytes, err = ioutil.ReadFile(key)
-		if err != nil {
+		if pemBytes, err = ioutil.ReadFile(path); err != nil {
 			return
 		}
-		signer, err = ssh.ParsePrivateKey(pemBytes)
-		if err != nil {
+		if signer, err = ssh.ParsePrivateKey(pemBytes); err != nil {
 			return
 		}
 		auths = append(auths, ssh.PublicKeys(signer))
@@ -135,32 +168,6 @@ func loadEnvAgent() (auths []ssh.AuthMethod, err error) {
 	defer sshAuthSock.Close()
 	ag := agent.NewClient(sshAuthSock)
 	auths = []ssh.AuthMethod{ssh.PublicKeysCallback(ag.Signers)}
-	return
-}
-
-func loadDefaultKeys() (auths []ssh.AuthMethod, err error) {
-	k := ""
-	currentUser, err := user.Current()
-	defaultKeyPathA := filepath.FromSlash(currentUser.HomeDir + "/.ssh/id_rsa")
-	defaultKeyPathB := filepath.FromSlash(currentUser.HomeDir + "/ssh/id_rsa")
-	if fileExists(defaultKeyPathA) {
-		k = defaultKeyPathA
-	} else if fileExists(defaultKeyPathB) {
-		k = defaultKeyPathB
-	}
-	if len(k) == 0 {
-		err = errors.New("No key specified")
-		return
-	}
-	pemBytes, err := ioutil.ReadFile(k)
-	if err != nil {
-		return
-	}
-	signer, err := ssh.ParsePrivateKey(pemBytes)
-	if err != nil {
-		return
-	}
-	auths = []ssh.AuthMethod{ssh.PublicKeys(signer)}
 	return
 }
 
