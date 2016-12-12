@@ -3,7 +3,7 @@ package tasks
 // Task represents a single action that Operator can perform.
 type Task struct {
 	Description string
-	Fn          func(...string) (string, error)
+	Fn          func(...interface{}) (string, error)
 }
 
 // TaskList is a map of available task handlers. It is used to dynamically determine API routes.

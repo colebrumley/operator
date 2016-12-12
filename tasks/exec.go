@@ -29,10 +29,9 @@ func (e *ExecConfig) Serialize() (string, error) {
 }
 
 // Exec runs an external application or script. TODO: add a timeout
-func Exec(config ...string) (string, error) {
+func Exec(config ...interface{}) (string, error) {
 	var cfg ExecConfig
-
-	data := []byte(config[0])
+	data := []byte(config[0].(string))
 
 	// Convert the config back into a struct from JSON
 	if err := json.Unmarshal(data, &cfg); err != nil {

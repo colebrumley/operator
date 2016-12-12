@@ -15,10 +15,10 @@ import (
 )
 
 // SSH dispatches a command to a remote node via SSH
-func SSH(config ...string) (string, error) {
+func SSH(config ...interface{}) (string, error) {
 	var cfg SSHConfig
 
-	data := []byte(config[0])
+	data := []byte(config[0].(string))
 
 	// Convert the config back into a struct from JSON
 	if err := json.Unmarshal(data, &cfg); err != nil {

@@ -35,7 +35,7 @@ func TestExecConfig_Serialize(t *testing.T) {
 
 func TestExec(t *testing.T) {
 	type args struct {
-		config []string
+		config []interface{}
 	}
 	tests := []struct {
 		name    string

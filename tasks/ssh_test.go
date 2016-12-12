@@ -9,7 +9,7 @@ import (
 
 func TestSSH(t *testing.T) {
 	type args struct {
-		config []string
+		config []interface{}
 	}
 	tests := []struct {
 		name    string

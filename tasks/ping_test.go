@@ -4,7 +4,7 @@ import "testing"
 
 func TestPing(t *testing.T) {
 	type args struct {
-		in0 []string
+		in0 []interface{}
 	}
 	tests := []struct {
 		name    string

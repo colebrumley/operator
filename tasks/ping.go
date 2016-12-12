@@ -1,6 +1,6 @@
 package tasks
 
 // Ping is a super basic task that returns "Pong"
-func Ping(...string) (string, error) {
+func Ping(...interface{}) (string, error) {
 	return "Pong", nil
 }
